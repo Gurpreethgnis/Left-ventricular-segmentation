@@ -1,0 +1,222 @@
+import tensorflow as tf
+import glob
+import os
+import time
+import numpy as np
+from LV_segmentation import util
+from LV_segmentation import preprocessing
+from LV_segmentation.dcgan import discriminator
+from LV_segmentation.dcgan import generator
+import matplotlib
+from matplotlib import pyplot as plt
+
+# ----------------------------------------------------------------------------
+# Model
+
+# def D(input):
+#     D = discriminator(input)
+#     return D.fc3
+#
+# def G(input):
+#     G = generator(input)
+#     return G.deconv5_2
+# Hyper parameters
+learning_rate = 0.0001
+training_epochs = 1000
+batch_size = 20  # mini batch size
+
+X = tf.placeholder(tf.float32, [None, 224, 224, 3])  # image
+z = tf.placeholder(tf.float32, [None, 7, 7, 512])  # noise
+# G = tf.placeholder(tf.float32, [None, 224, 224, 3])
+
+D = discriminator(X)    # the instance under discriminator is made under D
+G = generator(z)
+
+d = D.build(X)
+dg = D.build(G.build(z))
+
+# d_logits = tf.nn.sigmoid(d)
+# dg_logits = tf.nn.sigmoid(dg)
+
+sampler = G.build(z)
+# print(sampler.get_shape())
+
+
+
+# Objective - loss function
+g_loss      = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dg), logits=tf.nn.sigmoid(dg)))
+d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(d), logits=tf.nn.sigmoid(d)))
+d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(dg), logits=tf.nn.sigmoid(dg)))
+d_loss = d_loss_real + d_loss_fake
+
+d_opt = tf.train.AdamOptimizer(learning_rate).minimize(d_loss)  # initialization 문제 없애기 위해서
+g_opt = tf.train.AdamOptimizer(learning_rate).minimize(g_loss)  # initialization 문제 없애기 위해서
+
+# Data set and path
+trainval_ratio = 4
+test_ratio = 1
+
+# -----------------------------------------------------------------------------------
+if not os.path.exists('gan/samples'):
+    os.makedirs('gan/samples')
+if not os.path.exists('gan/checkpoint'):
+    os.makedirs('gan/checkpoint')
+# saver = tf.train.Saver()
+
+def generateZ(batch_size):
+    return np.random.normal(size=[batch_size, 7, 7, 512])
+
+start_time = time.time()
+
+# Launch the graph in a session
+with tf.Session() as sess:
+    tf.global_variables_initializer().run()  # global initialize
+    util.load_class(D.parameters, 'vgg16_weights.npz', sess)  # local initialize (conv5)
+
+    # trainX, trainY, testX, testY \
+    #     = util.set_rearange(train_image_set, train_label_set, train_ratio, validation_ratio, k)
+    # test_size = len(testX)
+
+    DIR = 'data/train'
+    filelist = glob.glob(os.path.join(DIR, '*.jpg'))
+    # print(len(filelist))  # 981
+    images = preprocessing.decode_image(filelist)
+    trainX, testX = util.data_set2(images, trainval_ratio, test_ratio)
+    trainX = [trainX[i] for i in range(trainval_ratio)]
+    trainX = np.concatenate(trainX, axis=0)
+    # print('trainX:', trainX[1:2].shape)
+    # print(trainX)
+
+    for i in range(training_epochs):
+        # print('training---')
+        # print(len(trainX))
+        # print(batch_size)
+
+        training_batch = zip(range(0, len(trainX), batch_size),
+                             range(batch_size, len(trainX) + 1, batch_size))  # list > dictionary ?
+        # zip(range(start, end, interval))
+        # 0     72
+        # 72    144
+        # ...
+        # 528   600
+        # print(training_batch)
+
+        for start, end in training_batch:
+            # print(start, end)
+
+            print('training---')
+            # noiseZ = np.random.normal(size=[batch_size, 7, 7,  512])
+            # print(generateZ(batch_size).shape)
+            # print(trainX[start:end].shape)      # 10, 224, 224, 3
+            # print(generateZ(batch_size).shape)  # 10, 7, 7, 512
+
+            print('d_loss: ', sess.run(d_loss, feed_dict={X: trainX[start:end], z: generateZ(batch_size)}))
+            print('g_loss: ', sess.run(g_loss, feed_dict={z: generateZ(batch_size)}))
+            sess.run(d_opt, feed_dict={X: trainX[start:end], z: generateZ(batch_size)})
+            sess.run(g_opt, feed_dict={z: generateZ(batch_size)})
+
+
+        image = sess.run(sampler, feed_dict={z: generateZ(batch_size)})
+        plt.switch_backend('Qt5agg')
+        # You may wish to save or plot the image generated
+        # to see how it looks like
+        # print(image.shape)
+        # for k in range(batch_size):
+        #     plt.subplot(2,5,k+1)
+        #     plt.imshow(image[k,:,:,:])
+        #     plt.show()
+
+    print('training finished')
+
+
+# with tf.Session() as sess:
+# # with tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth =True))) as sess:
+#
+#     # preprocessing.save_image()                      # resize and equlize images
+#     images, labels = preprocessing.labeling_image() # label images
+#
+#     # devide the data into train + validation set and test set
+#     train_image_set, test_image_set, train_label_set, test_label_set \
+#         = util.data_set(images, labels, trainval_ratio, test_ratio)
+#
+#     for k in range(trainval_ratio):
+#
+#         tf.global_variables_initializer().run()  # global initialize
+#         # trainedlayers = pretrained_model(imgs, 'vgg16_weights.npz', sess)  # local initialize (conv1-4)
+#         util.load_class(traininglayers.training_parameters, 'vgg16_weights.npz', sess)   # local initialize (conv5)
+#
+#         trainX, trainY, testX, testY \
+#             = util.set_rearange(train_image_set, train_label_set, train_ratio, validation_ratio, k)
+#         test_size = len(testX)
+#
+#         for i in range(training_epochs):
+#             print('epoch: ', k, '-', i)
+#
+#             training_batch = zip(range(0, len(trainX), batch_size),
+#                                  range(batch_size, len(trainX) + 1, batch_size))  # list > dictionary ?
+#             # zip(range(start, end, interval))
+#             # 0     30
+#             # 30    60
+#             # ...
+#             # 120   150
+#             for start, end in training_batch:
+#                 # print(sess.run(traininglayers.parameters2, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+#                 print(sess.run(cost, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+#                 sess.run(optimization, feed_dict={X: trainX[start:end], Y: trainY[start:end]})
+#
+#         if crossval is not 'ON': break
+#
+#     print('training finished')
+
+#
+#
+# with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+#     sess.run(tf.global_variables_initializer())
+#     if ut.load_model(saver=saver, sess=sess, checkpoint_dir='./checkpoint'):
+#         print('[S] Load SUCCESS')
+#     else:
+#         print('[F] Load failed... New model is created.')
+#
+#     for epoch in range(FLAGS.epoch):
+#         batch_idxs = min(len(data), FLAGS.train_size) // FLAGS.batch_size
+#
+#         for idx in range(batch_idxs):
+#             batch_files = data[idx * FLAGS.batch_size: (idx + 1) * FLAGS.batch_size]
+#             batch = [ut.get_image(batch_file,
+#                                   FLAGS.input_height,
+#                                   FLAGS.input_width,
+#                                   FLAGS.resize_height,
+#                                   FLAGS.resize_width) for batch_file in batch_files]
+#             batch_X = np.array(batch)
+#             batch_z = np.random.normal(size=[FLAGS.batch_size, FLAGS.z_dim])
+#             # batch_z = np.random.uniform(-1, 1, [FLAGS.batch_size, FLAGS.z_dim])
+#
+#             # Update D, G network
+#             sess.run(d_opt, feed_dict={X: batch_X, z: batch_z})
+#             sess.run(g_opt, feed_dict={z: batch_z})
+#
+#             errD_fake = d_loss_fake.eval({z: batch_z})
+#             errD_real = d_loss_real.eval({X: batch_X})
+#             errG = g_loss.eval({z: batch_z})
+#
+#             counter += 1
+#             # -------------------------------------------------------------------------------------------
+#             # Print current status
+#             print('Epoch:[%2d][%4d/%4d] time: %4.4f, d_loss_fake: %.8f, d_loss_real: %.8f, g_loss: %.8f'
+#                   % (epoch, idx, batch_idxs, time.time() - start_time, errD_fake, errD_real, errG))
+#
+#             # Save the sample image every 100 times.
+#             if np.mod(counter, 100) == 1:
+#                 try:
+#                     samples, sd_loss, sg_loss = sess.run([sampler, d_loss, g_loss], feed_dict={X: sample_X, z: sample_z})
+#                     ut.save_images(samples, [8, 8], './{}/train_{:02d}_{:04d}.png'.format('samples', epoch, idx))
+#                     print('[Save a Sample] d_loss: %.8f, g_loss: %.8f' % (sd_loss, sg_loss))
+#                 except:
+#                     print('Error! sample picture is not made...')
+#
+#             # Store models every 5000 times.
+#             if np.mod(counter, 5000) == 2 and counter > 2:
+#                 ut.save_model(sess, saver, './checkpoint/ckpt', counter)
+#             # --------------------------------------------------------------------------------------------
+#
+#
