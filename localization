@@ -1,0 +1,125 @@
+import tensorflow as tf
+import numpy as np
+import os
+from PIL import Image
+from LV_segmentation.localization import localization
+from LV_segmentation import preprocessing
+from LV_segmentation import util
+
+# --------------------------------------------------------------------------------------------------------------
+# Fine tunning whole layers
+# --------------------------------------------------------------------------------------------------------------
+
+X = tf.placeholder(tf.float32, [None, 224, 224, 3])  # input class
+Y = tf.placeholder(tf.float32, [None, 4])  # output class
+
+# Training model
+traininglayers = localization(X)  # X: input layers
+
+# Hyper parameters
+learning_rate = 0.0001
+training_epochs = 1000
+batch_size = 72  # mini batch size
+
+cost = tf.reduce_mean(tf.square(traininglayers.fc3 - Y))
+optimization = tf.train.AdamOptimizer(learning_rate).minimize(cost)  # initialization 문제 없애기 위해서
+# cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=traininglayers.fc3l, labels=Y))
+# cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=Y, logits=traininglayers.fc3l, pos_weight=1))
+# cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=traininglayers.fc3l, labels=Y))
+
+# Data parameters
+crossval = 'OFF'
+train_ratio = 9
+validation_ratio = 1
+test_ratio = 1
+trainval_ratio = train_ratio + validation_ratio
+
+# Launch the graph in a session
+with tf.Session() as sess:
+    # preprocessing.save_image()                      # resize and equlize images
+    images, labels = preprocessing.labeling_image()  # label images
+
+    SAVE_DIR = 'history/0420.run1/1'  # set the save directory
+    if not os.path.exists(SAVE_DIR):
+        os.mkdir(SAVE_DIR)
+    # --------------------------------------------------------------------------
+    # for tensorboard
+    # announce element
+    hist_cost = tf.summary.scalar('loss', cost)  # it will be stored in a buffer
+
+    # merge element
+    merged = tf.summary.merge_all()
+    # 1. announce filewriter
+    writer = tf.summary.FileWriter(SAVE_DIR)
+    # 2. add graph
+    writer.add_graph(sess.graph)
+    # --------------------------------------------------------------------------
+    # devide the data into train + validation set and test set
+    train_image_set, test_image_set, train_label_set, test_label_set \
+        = util.data_set(images, labels, trainval_ratio, test_ratio)
+
+    for k in range(trainval_ratio):
+        tf.global_variables_initializer().run()  # global initialize
+        util.load_class(traininglayers.parameters, 'vgg16_weights.npz', sess)  # local initialize (conv5)
+        trainX, trainY, testX, testY \
+            = util.set_rearange(train_image_set, train_label_set, train_ratio, validation_ratio, k)
+        test_size = len(testX)
+
+        for i in range(training_epochs):
+            print('epoch: ', k, '-', i)
+            training_batch = zip(range(0, len(trainX), batch_size),
+                                 range(batch_size, len(trainX) + 1, batch_size))  # list > dictionary ?
+            # zip(range(start, end, interval))
+            # 0     30
+            # 30    60
+            # ...
+            # 120   150
+            for start, end in training_batch:
+                # print(sess.run(traininglayers.pool1, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+                # print(sess.run(cost, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+                # print(sess.run(traininglayers.parameters8, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+                sess.run(optimization, feed_dict={X: trainX[start:end], Y: trainY[start:end]})
+                # --------------------------------------------------------------------------
+                # 3.1 run merged
+                summary = sess.run(merged, feed_dict={X: trainX[start:end], Y: trainY[start:end]})
+                # 3.2 add merged
+                writer.add_summary(summary, i)
+                # --------------------------------------------------------------------------
+
+                precision = []
+                recall = []
+                if i % 5 is 0:
+                    # validation
+                    test_indices = np.arange(test_size)  # Get A Test Batch
+                    np.random.shuffle(test_indices)
+                    test_indices = test_indices[0:test_size]
+                    print(testY[test_indices[0:10]])
+                    print(sess.run(traininglayers.fc3[:], feed_dict={X: trainX[0:10]}))
+                    # calculating precision and recall
+                    for j in range(batch_size):
+                        a1, b1, a2, b2 = testY[test_indices[j]]
+                        x1, y1, x2, y2 = sess.run(traininglayers.fc3[0], feed_dict={X: testX[test_indices[j:j + 1]]})
+
+                        x_coordinate = sorted([x1, x2, a1, a2])
+                        y_coordinate = sorted([y1, y2, b1, b2])
+
+                        precision = precision + [((x_coordinate[2] - x_coordinate[1]) * (y_coordinate[2] - y_coordinate[1])) /
+                                     ((a2 - a1) * (b2 - b1))]
+                        recall = recall + [((x_coordinate[2] - x_coordinate[1]) * (y_coordinate[2] - y_coordinate[1])) /
+                                           ((x2 - x1) * (y2 - y1))]
+                    # print(precision)
+                    if (len(precision) is batch_size):
+                        print('precision: ', np.mean(precision))
+                        print('recall: ', np.mean(recall))
+                    else:
+                        print('Meaningless result')
+
+            if i % 300:
+                # Save the weight
+                path = [SAVE_DIR + '/weight' + str(i) + 'npy']
+                util.save_weight(sess, path)
+
+        if crossval is not 'ON': break
+        print('training finished')
+
+    sess.close()
