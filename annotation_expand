@@ -1,0 +1,131 @@
+from xml.etree.ElementTree import Element, SubElement, tostring
+from bs4 import BeautifulSoup
+import glob
+import os
+
+# ----------------------------------------------------------
+
+# data annotation for localization
+
+# ----------------------------------------------------------
+
+
+def createXML(filename, xmin, ymin, xmax, ymax):
+    x1, y1, x2, y2 = xmin, ymin, xmax, ymax
+    # Create XML
+    root = Element("annotation")
+    # Set folder
+    x_folder = Element("folder")
+    x_folder.text = "video"
+    # Set filename
+    x_filename = Element("filename")
+    x_filename.text = "1"
+    # Set path
+    x_path = Element("path")
+    x_path.text = filename
+    # Set source
+    x_source = Element("source")
+    x_database = SubElement(x_source, "database")
+    x_database.text = "Unkown"
+    # Set size
+    x_size = Element("size")
+    x_width = SubElement(x_size, "width")
+    x_width.text = "636"
+    x_height = SubElement(x_size, "height")
+    x_height.text = "420"
+    x_depth = SubElement(x_size, "depth")
+    x_depth.text = "3"
+    # Set segmented
+    x_segmented = Element("segmented")
+    x_segmented.text = "0"
+    # Set object
+    x_object = Element("object")
+    # Set object_name
+    x_name = SubElement(x_object, "name")
+    x_name.text = "roi"
+    # Set object_pose
+    x_pose = SubElement(x_object, "pose")
+    x_pose.text = "Unspecified"
+    # Set object_truncated
+    x_truncated = SubElement(x_object, "truncated")
+    x_truncated.text = "0"
+    # Set object_difficult
+    x_difficult = SubElement(x_object, "difficult")
+    x_difficult.text = "0"
+    # Set object_bndbox
+    x_bndbox = SubElement(x_object, "bndbox")
+    # Set object_bndbox_xmin
+    x_xmin = SubElement(x_bndbox, "xmin")
+    x_xmin.text = x1
+    # Set object_bndbox_ymin
+    x_ymin = SubElement(x_bndbox, "ymin")
+    x_ymin.text = y1
+    # Set object_bndbox_xmax
+    x_xmax = SubElement(x_bndbox, "xmax")
+    x_xmax.text = x2  # Set object_bndbox_ymax
+    x_ymax = SubElement(x_bndbox, "ymax")
+    x_ymax.text = y2
+    # Append elements
+    root.append(x_folder)
+    root.append(x_filename)
+    root.append(x_path)
+    root.append(x_source)
+    root.append(x_size)
+    root.append(x_segmented)
+    root.append(x_object)
+
+    # Print
+    x_output = tostring(root, encoding='UTF-8')
+    x_header = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    # print(x_header + x_output.decode('utf-8'))
+    # Write to xml file
+    x_output = tostring(root, encoding='UTF-8')
+    x_header = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    ff = open(filename, 'w', encoding="utf-8")
+    ff.write(x_header + x_output.decode('utf-8'))
+
+
+def readXML(filename_org):
+    with open(filename_org, "r", encoding="utf8") as test_file:
+        xml = test_file.read()  # convert to str type
+    soup = BeautifulSoup(xml, "lxml")
+    xmin = soup.find("xmin").get_text()
+    ymin = soup.find("ymin").get_text()
+    xmax = soup.find("xmax").get_text()
+    ymax = soup.find("ymax").get_text()
+
+    return xmin, ymin, xmax, ymax
+
+
+ORG_DIR = 'original/annotations'
+ANNOTATION_DIR = 'augumentation/annotations'
+# CATEGORY = ['video1', 'video27', 'video29', 'video30']
+CATEGORY = ['video1', 'video27']
+
+# print(sorted(glob.glob(os.path.join(ORG_DIR, CATEGORY[0]+'*'))))
+frames_num = [len(glob.glob(os.path.join(ORG_DIR, CATEGORY[i]+'*'))) for i in range(len(CATEGORY))]
+print(frames_num)
+
+for video_num in range(len(CATEGORY)):
+    filename_org = [ORG_DIR + '/' + CATEGORY[video_num] + '.' + str(i) for i in range(frames_num[video_num])]           # file list to read
+    filename1 = [ANNOTATION_DIR + '/org.' + CATEGORY[video_num] + '.' + str(i) for i in range(frames_num[video_num])]  # file list to write
+    # filename2 = [ANNOTATION_DIR + '/backsub.' + CATEGORY[video_num] + '.' + str(i) for i in range(frames_num[video_num])]  # file list to write
+    filename3 = [ANNOTATION_DIR + '/blur.' + CATEGORY[video_num] + '.' + str(i) for i in range(frames_num[video_num])]  # file list to write
+    filename4 = [ANNOTATION_DIR + '/noise.' + CATEGORY[video_num] + '.' + str(i) for i in range(frames_num[video_num])]  # file list to write
+    print(filename_org)
+
+    # print(filename1)
+    # print(filename2)
+    for i in range(frames_num[video_num]):
+        xmin, ymin, xmax, ymax = readXML(filename_org[i])
+        createXML(filename1[i], xmin, ymin, xmax, ymax)
+        # createXML(filename2[i], xmin, ymin, xmax, ymax)
+        createXML(filename3[i], xmin, ymin, xmax, ymax)
+        createXML(filename4[i], xmin, ymin, xmax, ymax)
+
+
+
+
+
+
+
