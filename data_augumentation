@@ -1,0 +1,110 @@
+import numpy as np
+import glob
+import os
+import cv2
+import random
+
+# ----------------------------------------------------------
+
+# data agumentation
+
+# ----------------------------------------------------------
+
+def MakeSaltAndPepperNoise(Image, SaltNum, PepperNum):
+    CopyImage = Image.copy()
+    nChannel = 0
+
+    # Get Image size
+    Width = CopyImage.shape[0]
+    Height = CopyImage.shape[1]
+    # If image is grayscale, it not have Image.shape[2]
+    # so it raise IndexError exception
+    try:
+        nChannel = CopyImage.shape[2]
+    except IndexError:
+        nChannel = 1
+
+    # Make Salt Noise
+    for Salt in range(0, SaltNum):
+        # Generate Random Position
+        RWidth = random.randrange(0, Width)
+        RHeight = random.randrange(0, Height)
+        # Make Noise
+        if nChannel > 1:
+            for c in range(0, nChannel):
+                CopyImage[RWidth, RHeight, c] = 255
+        else:
+            CopyImage[RWidth, RHeight] = 255
+
+    # Make Pepper Noise
+    for Pepper in range(0, PepperNum):
+        # Generate Random Position
+        RWidth = random.randrange(0, Width)
+        RHeight = random.randrange(0, Height)
+        # Make Noise
+        if nChannel > 1:
+            for c in range(0, nChannel):
+                CopyImage[RWidth, RHeight, c] = 0
+        else:
+            CopyImage[RWidth, RHeight] = 0
+
+    return CopyImage
+
+
+def MakeAffineTransform(Image, pts1, pts2):
+    rows,cols,ch = Image.shape
+    M = cv2.getAffineTransform(pts1, pts2)
+    dst = cv2.warpAffine(Image, M, (cols, rows))
+
+    return dst
+
+# image augumentation - add noise, affine transformation, random crop
+
+# for i in range(100):
+#     img = cv2.imread(filename[i])
+#     img = cv2.medianBlur(img,5)
+#     cv2.imwrite(filename2[i], img)
+
+ORG_DIR = 'original/images'
+AUG_DIR = 'augumentation/images'
+
+# video_list = ['video1', 'video27', 'video29', 'video30']
+filelist=glob.glob(os.path.join(ORG_DIR, '*'))
+fn = sorted([os.path.split(filelist[i])[1] for i in range(len(filelist))])
+print(fn)
+
+# fn_aug0 = [AUG_DIR + '/org.' + os.path.split(fn[i])[1] for i in  range(len(fn))]
+# fn_aug1 = [AUG_DIR + '/blur.' + os.path.split(fn[i])[1] for i in  range(len(fn))]
+# fn_aug2 = [AUG_DIR + '/noise.' + os.path.split(fn[i])[1] for i in  range(len(fn))]
+# fn_aug3 = [AUG_DIR + '/trans.' + os.path.split(fn[i])[1] for i in  range(len(fn))]
+
+fn_aug0 = [AUG_DIR + '/org.' + fn[i]  for i in range(len(fn))]
+fn_aug1 = [AUG_DIR + '/blur.' + fn[i]  for i in  range(len(fn))]
+fn_aug2 = [AUG_DIR + '/noise.' + fn[i]  for i in range(len(fn))]
+# fn_aug3 = [AUG_DIR + '.backsub.' + str(i) + '.jpg' for i in range(len(frame))]
+
+for i in range(len(fn)):
+    img = cv2.imread(os.path.join(ORG_DIR, fn[i]))
+    cv2.imwrite(fn_aug0[i], img)
+    rows,cols,ch = img.shape
+
+    img1 = cv2.medianBlur(img, 9)
+    cv2.imwrite(fn_aug1[i], img1)
+
+    SaltNum = 20000
+    PepperNum = 20000
+    img2 = MakeSaltAndPepperNoise(img, SaltNum, PepperNum)
+    cv2.imwrite(fn_aug2[i], img2)
+
+    # pts1 = np.float32([[50, 50], [200, 50], [50, 200]])
+    # pts2 = np.float32([[10, 100], [200, 50], [100, 250]])
+    # img3 = MakeAffineTransform(img, pts1, pts2)
+    # cv2.imwrite(fn_aug3[i], img3)
+
+# fn_check=glob.glob(os.path.join(AUG_DIR, '*.cat.*.jpg'))
+# print(fn_check)
+
+
+
+
+
