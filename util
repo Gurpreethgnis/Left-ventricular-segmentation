@@ -1,0 +1,186 @@
+import tensorflow as tf
+import numpy as np
+import os
+
+class load_class:
+    # weight file is a dictionary tpye
+    # dictionary is composed of keys and values
+    # e.g. x=('name', 'leebt') name is key and leebt is value
+    # ['conv1_1_W', 'conv1_1_b', 'conv1_2_W', 'conv1_2_b',
+    #  'conv2_1_W', 'conv2_1_b', 'conv2_2_W', 'conv2_2_b',
+    #  'conv3_1_W', 'conv3_1_b', 'conv3_2_W', 'conv3_2_b', 'conv3_3_W', 'conv3_3_b',
+    #  'conv4_1_W', 'conv4_1_b', 'conv4_2_W', 'conv4_2_b', 'conv4_3_W', 'conv4_3_b',
+    #  'conv5_1_W', 'conv5_1_b', 'conv5_2_W', 'conv5_2_b', 'conv5_3_W', 'conv5_3_b',
+    #  'fc6_W', 'fc6_b', 'fc7_W', 'fc7_b', 'fc8_W', 'fc8_b']
+
+    def __init__(self, parameters, weight_file, sess):
+        self.load_weights(parameters, weight_file, sess)
+
+    def load_weights(self, parameters, weight_file, sess):
+        weights = np.load(weight_file)
+        print(sorted(parameters.keys()))
+        print(weights.keys())
+
+        # parameters = { 'conv1_1_W':[...], 'conv1_1_b':[...], ...}
+        # weights = { 'conv1_1_W':[...], 'conv1_1_b':[...], ...}
+        for i, k in enumerate(sorted(parameters)):
+            print(i, k, np.shape(weights[k]))
+            # print(weights[k])
+            sess.run(tf.assign(ref=parameters[k], value=weights[k]))
+
+
+class load_class_old:
+    def __init__(self, parameters, weight_file, sess):
+        self.load_weights(parameters, weight_file, sess)
+
+    def load_weights(self, parameters, weight_file, sess):
+        weights = np.load(weight_file)
+        keys = sorted(weights.keys())
+        for i, k in enumerate(keys[:len(parameters)]):  # conv net만 weight load
+            print(i, k, np.shape(weights[k]))
+            # print(type(parameters)) # list
+            # print(parameters)
+            # sess.run(parameters[i].assign(weights[k]))
+            sess.run(tf.assign(ref=parameters[i], value=weights[k]))
+            # parameters[i].assign(weights[k])
+
+
+# def data_shuffling(images, labels, trainset_num):
+#     # converting file format from list to numpy.ndarray
+#     # separate train images and prediction images
+#     # asarray: list 를 array로 만들어줌
+#     # test_images = np.asarray(images[trainset_num:])
+#     # print(trainset_num)   # 981
+#     # print(len(images))    # 981
+#     images = np.asarray(images[:trainset_num])
+#     labels = np.asarray(labels)
+#
+#     image_indices = np.arange(len(images))
+#     np.random.shuffle(image_indices)
+#
+#     # shuffle train images
+#     images = images[image_indices]
+#     labels = labels[image_indices]
+#
+#     # train images 에서 train set 과 validation set 으로 나눔
+#     train_num = int(trainset_num * 0.8)
+#     # print(train_num)    # 784
+#     train_images = images[:train_num]
+#     test_images = images[train_num:]
+#     # print(len(train_images))    # 784
+#     # print(len(test_images))     # 197
+#
+#     train_labels = labels[:train_num]
+#     test_labels = labels[train_num:]
+#
+#     trainX = train_images
+#     trainY = train_labels
+#     testX = test_images
+#     testY = test_labels
+#
+#     train_size = len(trainX)
+#     test_size = len(testX)
+#
+#     return trainX, trainY, testX, testY, train_size, test_size
+
+def data_set(images, labels, trainval_ratio, test_ratio):
+
+    total_ratio = trainval_ratio + test_ratio
+
+    images = np.asarray(images) # images to array
+
+    # shuffle the images
+    image_indices = np.arange(len(images))
+    np.random.shuffle(image_indices)
+    images = images[image_indices]  # no need additional space to restore images temporaly
+    labels = np.asarray(labels)
+    labels = labels[image_indices]
+    set_len = int(np.floor(len(images) / total_ratio))
+
+    image_set = []
+    label_set = []
+    for i in range(total_ratio):
+        image_set = image_set + [images[set_len*i : set_len*(i+1)]]
+        label_set = label_set + [labels[set_len*i : set_len*(i+1)]]
+
+    train_image_set = image_set[0:trainval_ratio]
+    test_image_set = image_set[trainval_ratio:]
+    train_label_set = label_set[0:trainval_ratio]
+    test_label_set = label_set[trainval_ratio:]
+
+    return train_image_set, test_image_set, train_label_set, test_label_set
+
+def data_set2(images, trainval_ratio, test_ratio):
+    # data_set2 is a function for unsupervised learning
+
+    total_ratio = trainval_ratio + test_ratio
+    images = np.asarray(images)
+
+    image_indices = np.arange(len(images))
+    np.random.shuffle(image_indices)
+    images = images[image_indices]
+    set_len = int(np.floor(len(images) / total_ratio))
+
+    image_set = []
+    for i in range(total_ratio):
+        image_set = image_set + [images[set_len*i : set_len*(i+1)]]
+
+    train_image_set = image_set[0:trainval_ratio]
+    test_image_set = image_set[trainval_ratio:]
+
+    return train_image_set, test_image_set
+
+
+def set_rearange(image_set, label_set, train_ratio, validation_ratio, k):
+
+    # trainval_num = train_ratio + validation_ratio
+    # rearange for cross validation
+    image_set.append(image_set.pop(k))
+    label_set.append(label_set.pop(k))
+
+    trainX = [image_set[i] for i in range(train_ratio)]
+    trainY = [label_set[i] for i in range(train_ratio)]
+    # for i in range(train_ratio):
+    trainX = np.concatenate(trainX, axis=0)
+    trainY = np.concatenate(trainY, axis=0)
+
+    testX = [image_set[-i] for i in range(validation_ratio)]
+    testY = [label_set[-i] for i in range(validation_ratio)]
+    # for i in range(validation_ratio):
+    testX = np.concatenate(testX, axis=0)
+    testY = np.concatenate(testY, axis=0)
+
+    return trainX, trainY, testX, testY
+
+# def test_accuracy(testX, testY, test_indices, batch_size):
+#     # calculating precision and recall
+#     precision = []
+#     recall = []
+#
+#     for j in range(batch_size):
+#         a1, b1, a2, b2 = testY[test_indices[j]]
+#         x1, y1, x2, y2 = sess.run(traininglayers.fc3l[0], feed_dict={
+#             X: sess.run(conv_net.pool3, feed_dict={conv_net.imgs: testX[test_indices[j:j + 1]]})})
+#
+#         # print(a1, b1, a2, b2)
+#         # print(x1, y1, x2, y2)
+#         tmp_x = sorted([x1, x2, a1, a2])
+#         tmp_y = sorted([y1, y2, b1, b2])
+#         # print(tmp_x)
+#         # print(tmp_y)
+#         precision = precision + [((tmp_x[2] - tmp_x[1]) * (tmp_y[2] - tmp_y[1])) / ((a2 - a1) * (b2 - b1))]
+#         recall = recall + [((tmp_x[2] - tmp_x[1]) * (tmp_y[2] - tmp_y[1])) / ((x2 - x1) * (y2 - y1))]
+#
+#     print('precision: ', np.mean(precision))
+#     print('recall: ', np.mean(recall))
+
+def save_weight(sess, save_path):
+
+    dir = os.path.split(save_path)[0]
+    if not os.path.exists(dir):
+        os.mkdir(dir)
+
+    saver = tf.train.Saver()
+    saver.save(sess, save_path)
+
+    print("Model is saved in file: %s" % save_path)
