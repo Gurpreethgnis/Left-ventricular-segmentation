@@ -1,0 +1,172 @@
+import tensorflow as tf
+import numpy as np
+
+def normalization(input):
+    with tf.variable_scope('preprocess') as scope:
+        mean = tf.constant([60, 60, 60], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
+        norm = tf.constant([255, 255, 255], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
+        output = (input - mean) / norm
+        return output
+
+
+class localization:
+    def __init__(self, input):
+        self.input = input
+        self.parameters = {}
+        self.build()
+
+    def build(self):
+        self.norminput = normalization(self.input)
+        # conv1
+        self.conv1_1 = self.convlayer('conv1_1', [3, 3, 3, 64], [64], self.norminput)
+        self.conv1_2 = self.convlayer('conv1_2', [3, 3, 64, 64], [64], self.conv1_1)  # 256*256
+        self.pool1 = tf.nn.max_pool(value=self.conv1_2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool1')  # 112 112 64
+        # conv2
+        self.conv2_1 = self.convlayer('conv2_1', [3, 3, 64, 128], [128], self.pool1)
+        self.conv2_2 = self.convlayer('conv2_2', [3, 3, 128, 128], [128], self.conv2_1)  # 128*128
+        self.pool2 = tf.nn.max_pool(value=self.conv2_2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool2')  # 56 56 128
+        # conv3
+        self.conv3_1 = self.convlayer('conv3_1', [3, 3, 128, 256], [256], self.pool2)
+        self.conv3_2 = self.convlayer('conv3_2', [3, 3, 256, 256], [256], self.conv3_1)
+        self.conv3_3 = self.convlayer('conv3_3', [3, 3, 256, 256], [256], self.conv3_2)  # 56*56
+        self.pool3 = tf.nn.max_pool(value=self.conv3_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool3')  # 28 28 256
+        # conv4
+        self.conv4_1 = self.convlayer('conv4_1', [3, 3, 256, 512], [512], self.pool3)
+        self.conv4_2 = self.convlayer('conv4_2', [3, 3, 512, 512], [512], self.conv4_1)
+        self.conv4_3 = self.convlayer('conv4_3', [3, 3, 512, 512], [512], self.conv4_2)  # 28*28
+        self.pool4 = tf.nn.max_pool(value=self.conv4_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool4')  # 14 14 512
+        # conv5
+        self.conv5_1 = self.convlayer('conv5_1', [3, 3, 512, 512], [512], self.pool4)
+        self.conv5_2 = self.convlayer('conv5_2', [3, 3, 512, 512], [512], self.conv5_1)
+        self.conv5_3 = self.convlayer('conv5_3', [3, 3, 512, 512], [512], self.conv5_2)  # 14*14
+        self.pool5 = tf.nn.max_pool(value=self.conv5_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool5')  # 7 7 512
+        # fc
+        shape = int(np.prod(self.pool5.get_shape()[1:]))    # production of pool5 layer (7*7*512)
+        tmp = tf.reshape(self.pool5, [-1, shape])
+        self.fc1 = self.fclayer(name='fc1', kernel=[shape, 4096], bias=[4096], input=tmp)
+        self.fc2 = self.fclayer(name='fc2', kernel=[4096, 64], bias=[64], input=self.fc1)
+        self.fc3 = self.fclayer(name='fc3', kernel=[64, 4], bias=[4], input=self.fc2)
+
+    def convlayer(self, name, kernel, bias, input):
+        with tf.variable_scope(name) as scope:
+            kernel = tf.Variable(tf.truncated_normal(kernel, dtype=tf.float32, stddev=1e-1), name='weights')
+            conv = tf.nn.conv2d(input, kernel, [1, 1, 1, 1], padding='SAME')
+            biases = tf.Variable(tf.constant(0.0, shape=bias, dtype=tf.float32), trainable=True, name='biases')
+            out = tf.nn.bias_add(conv, biases)
+            # self.parameters += [kernel, biases]
+            self.parameters[name+'_W']= kernel
+            self.parameters[name+'_b']= biases
+
+            output = tf.nn.relu(out)
+            return output
+
+    def fclayer(self, name, kernel, bias, input):
+        with tf.variable_scope(name) as scope:
+            fc_w = tf.Variable(tf.truncated_normal(kernel, dtype=tf.float32, stddev=1e-1), name='weights')
+            fc_b = tf.Variable(tf.constant(1.0, shape=bias, dtype=tf.float32), trainable=True, name='biases')
+            # self.parameters += [fc_w, fc_b]
+            # self.parameters += {name+'_W': fc_w, name+'_b': fc_b}
+
+            output = tf.nn.bias_add(tf.matmul(input, fc_w), fc_b)
+            return output
+
+
+
+# class convlayer:
+#     def __init__(self, name, kernel, bias, input):
+#         self.conv(name, kernel, bias, input)
+#     def conv(self, name, kernel, bias, input):
+#         with tf.variable_scope(name) as scope:
+#             kernel = tf.Variable(tf.truncated_normal(kernel, dtype=tf.float32, stddev=1e-1), name='weights')
+#             conv = tf.nn.conv2d(input, kernel, [1, 1, 1, 1], padding='SAME')
+#             biases = tf.Variable(tf.constant(0.0, shape=bias, dtype=tf.float32), trainable=True, name='biases')
+#             out = tf.nn.bias_add(conv, biases)
+#             self.parameters = [kernel, biases]
+#             self.output = tf.nn.relu(out)
+#             # return output
+
+# def convlayer(name, kernel, bias, input):
+#     with tf.variable_scope(name) as scope:
+#         kernel = tf.Variable(tf.truncated_normal(kernel, dtype=tf.float32, stddev=1e-1), name='weights')
+#         conv = tf.nn.conv2d(input, kernel, [1, 1, 1, 1], padding='SAME')
+#         biases = tf.Variable(tf.constant(0.0, shape=bias, dtype=tf.float32), trainable=True, name='biases')
+#         out = tf.nn.bias_add(conv, biases)
+#         parameters = [kernel, biases]
+#         output = tf.nn.relu(out)
+#         return output, parameters
+
+# class fclayer:
+#     def __init__(self, name, kernel, bias, input):
+#         self.fclayer(name, kernel, bias, input)
+#     def fclayer(self, name, kernel, bias, input):
+#         with tf.variable_scope(name) as scope:
+#             fc_w = tf.Variable(tf.truncated_normal(kernel, dtype=tf.float32, stddev=1e-1), name='weights')
+#             fc_b = tf.Variable(tf.constant(1.0, shape=bias, dtype=tf.float32), trainable=True, name='biases')
+#             self.parameters = [fc_w, fc_b]
+#             self.output = tf.nn.bias_add(tf.matmul(input, fc_w), fc_b)
+#             # output = tf.nn.relu(fc_l)
+#             # output = tf.nn.batch_normalization(fc_relu, 0, 1, None, None, 0.001)
+#             # return output, parameters
+#
+# class conv1:
+#     def __init__(self, input):
+#         # self.input = normalization(input)
+#         self.conv1_1 = convlayer('conv1_1', [3, 3, 3, 64], [64], input)
+#         self.conv1_2 = convlayer('conv1_2', [3, 3, 64, 64], [64], self.conv1_1.output)  # 256*256
+#         self.pool1 = tf.nn.max_pool(self.conv1_2.output, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool1')  # 112 112 64
+#         self.parameters1 = self.conv1_1.parameters + self.conv1_2.parameters
+#         # self.parameters1 = self.parameters1_1 + self.parameters1_2
+# class conv2:
+#     def __init__(self, input):
+#         self.conv2_1 = convlayer('conv2_1', [3, 3, 64, 128], [128], input)
+#         self.conv2_2 = convlayer('conv2_2', [3, 3, 128, 128],  [128], self.conv2_1.output)  # 128*128
+#         self.pool2 = tf.nn.max_pool(self.conv2_2.output, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool2')  # 56 56 128
+#         self.parameters2 = self.conv2_1.parameters + self.conv2_2.parameters
+#         # self.parameters2 = self.parameters2_1 + self.parameters2_2
+# class conv3:
+#     def __init__(self, input):
+#         self.conv3_1 = convlayer('conv3_1', [3, 3, 128, 256], [256], input)
+#         self.conv3_2 = convlayer('conv3_2', [3, 3, 256, 256], [256], self.conv3_1.output)
+#         self.conv3_3 = convlayer('conv3_3', [3, 3, 256, 256], [256], self.conv3_2.output)   # 56*56
+#         self.pool3 = tf.nn.max_pool(self.conv3_3.output, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool3')  # 28 28 256
+#         self.parameters3 = self.conv3_1.parameters + self.conv3_2.parameters + self.conv3_3.parameters
+#         # self.parameters3 = self.parameters3_1 + self.parameters3_2 + self.parameters3_3
+# class conv4:
+#     def __init__(self, input):
+#         self.conv4_1 = convlayer('conv4_1', [3, 3, 256, 512], [512], input)
+#         self.conv4_2 = convlayer('conv4_2', [3, 3, 512, 512], [512], self.conv4_1.output)
+#         self.conv4_3 = convlayer('conv4_3', [3, 3, 512, 512], [512], self.conv4_2.output)   # 28*28
+#         self.pool4 = tf.nn.max_pool(self.conv4_3.output, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool4')  # 14 14 512
+#         self.parameters4 = self.conv4_1.parameters + self.conv4_2.parameters + self.conv4_3.parameters
+#         # self.parameters4 = self.parameters4_1 + self.parameters4_2 + self.parameters4_3
+# class conv5:
+#     def __init__(self, input):
+#         self.conv5_1 = convlayer('conv5_1', [3, 3, 512, 512], [512], input)
+#         self.conv5_2 = convlayer('conv5_2', [3, 3, 512, 512], [512], self.conv5_1.output)
+#         self.conv5_3 = convlayer('conv5_3', [3, 3, 512, 512], [512], self.conv5_2.output)   # 14*14
+#         self.pool5 = tf.nn.max_pool(self.conv5_3.output, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool5')   # 7 7 512
+#         self.parameters5 = self.conv5_1.parameters + self.conv5_2.parameters + self.conv5_3.parameters
+#         # self.parameters5 = self.parameters5_1 + self.parameters5_2 + self.parameters5_3
+# class fc_localization():
+#     def __init__(self, input):
+#         shape = int(np.prod(input.get_shape()[1:]))
+#         input = tf.reshape(input, [-1, shape])
+#         self.fc1 = fclayer(name= 'fc1', kernel=[shape, 4096], bias= [4096], input= input)
+#         self.fc2 = fclayer(name= 'fc2', kernel=[4096, 64], bias= [64], input= self.fc1.output)
+#         self.fc3 = fclayer(name= 'fc3', kernel=[64, 4], bias= [4], input= self.fc2.output)
+#         self.parameters6 = self.fc1.parameters
+#         self.parameters7 = self.fc2.parameters
+#         self.parameters8 = self.fc3.parameters
+# class fc_classification():
+#     def __init__(self, input):
+#         shape = int(np.prod(input.get_shape()[1:]))
+#         input = tf.reshape(input, [-1, shape])
+#         self.fc1 = fclayer(name= 'fc1', kernel=[shape, 4096], bias= [4096], input= input)
+#         self.fc2 = fclayer(name= 'fc2', kernel=[4096, 4096], bias= [4096], input= self.fc1.output)
+#         self.fc3 = fclayer(name= 'fc3', kernel=[4096, 2], bias= [2], input= self.fc2.output)
+#         self.parameters6 = self.fc1.parameters
+#         self.parameters7 = self.fc2.parameters
+#         self.parameters8 = self.fc3.parameters
+#
+#
+#
