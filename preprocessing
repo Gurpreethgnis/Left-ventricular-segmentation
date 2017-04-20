@@ -1,0 +1,245 @@
+import glob
+import os
+import re
+import PIL
+import numpy as np
+import tensorflow as tf
+import cv2
+from PIL import Image
+from LV_segmentation.data.annotation_expand import readXML
+
+
+# --------------------------------------------------------------------------------------------------------------
+
+# Image normalizatiovn and resize
+
+def natural_key(string_):
+
+    # 1, 12, 123
+    return int(re.search(r'\d+', string_).group())
+
+def norm_image(img):
+
+    # img = np.asarray(img).astype(dtype=int)
+    # img_r_np /= 255                 # [0,255] > [0,1]
+    # # img_r_np -= img_r_np.mean()
+    # img_r_np /= img_r_np.std()
+    #
+    # img_g_np = np.asarray(img_g).astype(float)
+    # img_g_np /= 255
+    # # img_g_np -= img_g_np.mean()
+    # img_g_np /= img_g_np.std()
+    #
+    # img_b_np = np.asarray(img_b).astype(float)
+    # img_b_np /= 255
+    # # img_b_np -= img_b_np.mean()
+    # img_b_np /= img_b_np.std()
+    #
+    # img_r = Image.fromarray(img_r_np)
+    # img_g = Image.fromarray(img_g_np)
+    # img_b = Image.fromarray(img_b_np)
+    # img_nrm = Image.merge('RGB', (img_r, img_g, img_b))
+
+    # img = eqal_image(img)
+    # img_y, img_b, img_r = img.convert('YCbCr').split()
+    #
+    # img_y_np = np.asarray(img_y).astype(float)
+    #
+    # img_y_np /= 255
+    # img_y_np -= img_y_np.mean()
+    # img_y_np /= img_y_np.std()
+
+    # scale = np.max([np.abs(np.percentile(img_y_np, 1.0))])  # np.percentile(a,50) return the 50% value of array a
+    # np.abs(np.percentile(img_y_np, 99.0))
+
+    # img_y_np /= scale
+    # img_y_np = np.clip(img_y_np, -1.0, 1.0)             # [ , ] > [-1, 1]
+    # img_y_np = (img_y_np+1.0) / 2.0                     # [-1, 1] > [0, 1]
+    # img_y_np = (img_y_np*255).astype(np.uint8)          # [0, 1] > [0, 255]
+    # img_y_np = img_y_np.astype(np.uint8)
+    # img_y = Image.fromarray(img_y_np)
+    # img_ybr = Image.merge('YCbCr', (img_y, img_b, img_r))
+    # img_nrm = img_ybr.convert('RGB')
+
+    # img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    # img_equal = cv2.equalizeHist(img_gray)
+    # # img_norm = img_equal
+    # img_norm = cv2.cvtColor(img_equal, cv2.COLOR_GRAY2RGB)
+
+    return img
+
+def equal_image(path):
+    img = cv2.imread(path)
+    img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    img_equal = cv2.equalizeHist(img_gray)
+    # img_norm = img_equal/255
+    img_rgb = cv2.cvtColor(img_equal, cv2.COLOR_GRAY2RGB)
+    img = Image.fromarray(img_rgb)  # mat to image object
+
+    return img
+
+
+def resize_image(img, size):
+
+    n_x, n_y = img.size
+    if n_y > n_x:
+        n_y_new = size
+        n_x_new = int(size*n_x/n_y + 0.5)
+    else:
+        n_x_new = size
+        n_y_new = int(size*n_y/n_x + 0.5)
+
+    img_res = img.resize((n_x_new, n_y_new), resample=PIL.Image.BICUBIC)
+
+    img_pad = Image.new('RGB', (size, size), (0, 0, 0))
+    top_left = ((size-n_x_new)//2, (size-n_y_new)//2)
+    img_pad.paste(img_res, top_left)
+
+    return img_pad
+
+def save_image():
+
+    # print('save_image')
+
+    ORG_DIR = 'data/augumentation/images'       # org data
+    TRAIN_DIR  = 'data/train'                   # preprocessed data
+
+    # print(os.path.join(TRAIN_DIR, 'cat*.jpg'))    # 틀린 것
+    # print(*glob.glob(os.path.join(TRAIN_DIR, 'cat*.jpg')), sep='\n')
+    # glob.glob는 경로에 대응되는 모든 파일 및 디렉터리의 리스트를 반환함 *와 ?러 사용 가능
+    # 0,1,10,11,12,...,19,2,20,21,22,...,29,3,30,31,...
+
+    video1 = sorted(glob.glob(os.path.join(ORG_DIR, '*.video1.*')), key=natural_key)
+    video2 = sorted(glob.glob(os.path.join(ORG_DIR, '*.video27.*')), key=natural_key)
+    # org_img = sorted(glob.glob(os.path.join(ORG_DIR, '*.jpg')), key=natural_key)
+    org_img = video1 + video2
+    # train_dogs = sorted(glob.glob(os.path.join(ORG_DIR, '*.dog.*.jpg')), key=natural_key)
+    # train_all = train_cats + train_dogs
+    # print(train_cats[:], sep='\n')
+    # 0,1,2,3,4,5,6,7,8,9,10,11...
+    # train_all has directories of all the image files
+
+    # train_img = sorted(glob.glob(os.path.join(TRAIN_DIR, '*.jpg')), key=natural_key)
+
+    # print(type(train_cats)) # the type of the train set
+    # print(len(train_all)) # the number of train set
+
+    SIZE = 224
+
+    if not os.path.exists(ORG_DIR):
+        os.mkdir(TRAIN_DIR)
+
+    for path in org_img[:]:
+        # img = Image.open(path)
+        # img = cv2.imread(path)    # return the numpy array
+        # img_nrm = norm_image(img)
+        img_equal = equal_image(path)
+        img_res = resize_image(img_equal, SIZE)
+
+        new_path = os.path.join(TRAIN_DIR, os.path.split(path)[1])
+        # print(new_path)
+        img_res.save(new_path)
+
+    print('images_saved')
+
+def norm_boundingbox(bndbox):
+
+    SIZE = 224
+    xmin, ymin, xmax, ymax = bndbox
+    xmin_norm = int(xmin)/SIZE
+    ymin_norm = int(ymin)/SIZE
+    xmax_norm = int(xmax)/SIZE
+    ymax_norm = int(ymax)/SIZE
+    bndbox_norm = [xmin_norm, ymin_norm, xmax_norm, ymax_norm]
+
+    return bndbox_norm
+
+def resize_boundingbox(bndbox):
+
+    orgSIZE = [636, 420]
+    reSIZE = 224
+    xmin, ymin, xmax, ymax = bndbox
+    xmin_re = int(xmin)*reSIZE/orgSIZE[0]
+    ymin_re = int(ymin)*reSIZE/orgSIZE[1]
+    xmax_re = int(xmax)*reSIZE/orgSIZE[0]
+    ymax_re = int(ymax)*reSIZE/orgSIZE[1]
+    bndbox_resize = [xmin_re, ymin_re, xmax_re, ymax_re]
+
+    return bndbox_resize
+
+
+# --------------------------------------------------------------------------------------------------------------
+
+# Converting image files to numpy.ndarray
+
+def decode_image(image_filenames, resize_func=None):
+
+    name = tf.placeholder(dtype=tf.string)
+    file = tf.read_file(name)
+    image = tf.image.decode_jpeg(file)
+    # print('the type of image in decode_image is',format(type(image)))
+    if resize_func:
+        image = resize_func(image)
+
+    images = []
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        # for 문을 이용할 때, 요소의 값 뿐 아니라 인덱스 값도 함께 필요하다면 enumerate() 내장 함수를 이용한다
+        for i, filename in enumerate(image_filenames, 1):
+            images.append(sess.run(image, feed_dict={name: filename}))
+
+            if i%1000 == 0:
+                print(i, 'processed.')
+        return images
+
+
+# --------------------------------------------------------------------------------------------------------------
+
+# Labeling images
+
+def labeling_image():
+
+    # ORG_DIR = 'data/augumentation/images'  # org data
+    TRAIN_DIR = 'data/train'  # preprocessed data
+    ANNOTATION_DIR = 'data/augumentation/annotations'
+
+    # TRAIN_DIR = 'Data/save/'
+    # TEST_DIR  = 'Data/test/'
+
+    train_files = sorted([TRAIN_DIR + '/' + i for i in os.listdir(TRAIN_DIR)])
+    annotation_files = sorted([ANNOTATION_DIR + '/' + i for i in os.listdir(ANNOTATION_DIR)])
+    # os.path.join()
+
+    # train_num = len(train_files)
+
+    # delete the .DS_Stroe
+    if '.DS_Store' in train_files[0]:
+        train_files = train_files[1:]
+
+
+    # os.path.join(ANNOTATION_DIR, os.listdir(ANNOTATION_DIR))
+
+    labels = []
+    for i in range(len(annotation_files)):
+        xmin, ymin, xmax, ymax = readXML(annotation_files[i])
+        bndbox_org = [xmin, ymin, xmax, ymax]
+        bndbox_resize = resize_boundingbox(bndbox_org)
+        bndbox_norm = norm_boundingbox(bndbox_resize)
+        labels = labels + [bndbox_norm]
+        # print(labels)
+        # label[i][j]: j(coordinate) of i th label
+
+        # print(train_files[i], '', annotation_files[i])
+
+    # one-hot encoding
+    # dog 인 경우 1,0 의 라벨을 cat 인 경우 0,1 의 라벨을 붙힌다
+    # labels = [[1.,0.] if 'dog' in name else [0.,1.] for name in train_files]
+    # print(labels)
+
+    train_images = decode_image(train_files)
+    # test_images  = decode_image(test_files)
+    # all_images   = train_images + test_images
+
+    print('images_labelled')
+
+    return train_images, labels
