@@ -1,0 +1,164 @@
+import tensorflow as tf
+import numpy as np
+import os
+from PIL import Image
+from LV_segmentation.localization import localization
+from LV_segmentation import preprocessing
+from LV_segmentation import util
+from LV_segmentation.rnn.rcnn import rcnn
+
+
+# --------------------------------------------------------------------------------------------------------------
+# One cycle of chest compression has 9 frames (in case of 15 frames per minute)
+# CNN having memory of last eight frames (memory of one cyle)
+# --------------------------------------------------------------------------------------------------------------
+
+X = tf.placeholder(tf.float32, [None, 224, 224, 3])     # input
+Y = tf.placeholder(tf.float32, [None, 7, 7, 512])               # output
+Memory = tf.placeholder(tf.float32, [None, 7, 7, 4096]) # memory
+
+# Training model
+# traininglayers = localization(X)  # X: input layers
+traininglayers = rcnn(X, Memory)    # X: input layers, Memory: memory layers
+
+# Hyper parameters
+learning_rate = 0.001
+training_epochs = 1000
+batch_size = 72  # mini batch size
+
+
+cost = tf.reduce_mean(tf.square(traininglayers.h_output - Y))
+optimization = tf.train.AdamOptimizer(learning_rate).minimize(cost)  # initialization 문제 없애기 위해서
+# cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=traininglayers.fc3l, labels=Y))
+# cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=Y, logits=traininglayers.fc3l, pos_weight=1))
+# cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=traininglayers.fc3l, labels=Y))
+
+# Data parameters
+crossval = 'OFF'
+train_ratio = 9
+validation_ratio = 1
+test_ratio = 1
+trainval_ratio = train_ratio + validation_ratio
+
+
+# Launch the graph in a session
+with tf.Session() as sess:
+
+
+    ####################################################################
+    # Image preprocessing(resize, labelling, divide data set)
+    # resize and equlize images
+    # preprocessing.save_image()
+
+    # image labelling
+    images = []
+    memory = []
+
+    # divide data set
+    trainX, testX = util.data_set2(images, trainval_ratio, test_ratio)
+
+    ####################################################################
+
+
+
+    ####################################################################
+    # For tensorboard
+
+    # save directory
+    SAVE_DIR = 'history/0421.run1/2'  # set the save directory
+    if not os.path.exists(SAVE_DIR):
+        os.mkdir(SAVE_DIR)
+
+    # announce element
+    tf.summary.scalar('loss', cost)  # it will be stored in a buffer
+    tf.summary.scalar('learning rate', learning_rate)  # it will be stored in a buffer
+    # merge element
+    merged = tf.summary.merge_all()
+    # 1. announce filewriter
+    writer = tf.summary.FileWriter(SAVE_DIR)
+    # 2. add graph
+    writer.add_graph(sess.graph)
+    ####################################################################
+
+
+
+    ####################################################################
+    # Initialization
+    tf.global_variables_initializer().run()  # global initialize
+    util.load_class(traininglayers.parameters, 'vgg16_weights.npz', sess)  # local initialize (conv5)
+    test_size = len(testX)
+    trainY = np.zeros([8, 7, 7, 4096])
+
+    ####################################################################
+
+
+    for i in range(training_epochs):
+        print('epoch: ', i)
+        training_batch = zip(range(0, len(trainX), batch_size),
+                             range(batch_size, len(trainX) + 1, batch_size))  # list > dictionary ?
+        # zip(range(start, end, interval))
+        # 0     30
+        # 30    60
+        # ...
+        # 120   150
+        for start, end in training_batch:
+            # print(sess.run(traininglayers.pool1, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+            # print(sess.run(cost, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+            # print(sess.run(traininglayers.parameters8, feed_dict={X: trainX[start:end], Y: trainY[start:end]}))
+
+            # predict the frame with current and the past frames
+            sess.run(optimization, feed_dict={X: trainX[start:end], Memory:memory[start:end] ,Y: trainY[start:end]})
+            # shift the past frames
+            h_output = sess.run(traininglayers.h_output, feed_dict={X: trainX[start:end], Memory:memory[start:end]})
+            memory = np.concatenate((h_output, memory[:,:,:,-512]), axis=2)
+
+
+            ####################################################################
+            # For tensorboard
+
+            #  3.1 run merged
+            summary = sess.run(merged, feed_dict={X: trainX[start:end], Y: trainY[start:end]})
+            # 3.2 add merged
+            writer.add_summary(summary, i)
+            ####################################################################
+
+        # precision = []
+        # recall = []
+        # # print('precision calculation')
+        # if i % 5 is 0:
+        #     # validation
+        #     test_indices = np.arange(test_size)  # Get A Test Batch
+        #     np.random.shuffle(test_indices)
+        #     test_indices = test_indices[0:test_size]
+        #     print(testY[test_indices[0:10]])
+        #     print(sess.run(traininglayers.fc3[:], feed_dict={X: trainX[0:10]}))
+        #     # calculating precision and recall
+        #     for j in range(batch_size):
+        #         a1, b1, a2, b2 = testY[test_indices[j]]
+        #         x1, y1, x2, y2 = sess.run(traininglayers.fc3[0], feed_dict={X: testX[test_indices[j:j + 1]]})
+        #
+        #         x_coordinate = sorted([x1, x2, a1, a2])
+        #         y_coordinate = sorted([y1, y2, b1, b2])
+        #
+        #         precision = precision + [((x_coordinate[2] - x_coordinate[1]) * (y_coordinate[2] - y_coordinate[1])) /
+        #                      ((a2 - a1) * (b2 - b1))]
+        #         recall = recall + [((x_coordinate[2] - x_coordinate[1]) * (y_coordinate[2] - y_coordinate[1])) /
+        #                            ((x2 - x1) * (y2 - y1))]
+        #     # print(precision)
+        #     if (len(precision) is batch_size):
+        #         print('precision: ', np.mean(precision))
+        #         print('recall: ', np.mean(recall))
+        #     else:
+        #         print('Meaningless result')
+
+        # if i % 300:
+        #     # Save the weight
+        #     path = [SAVE_DIR + '/weight' + str(i) + '.npy']
+        #     # util.save_weight(sess, path)
+        #     saver = tf.train.Saver()
+        #     saver.save(sess, path)
+        #     print("Model is saved in file: %s" % path)
+
+    print('training finished')
+
+    sess.close()
