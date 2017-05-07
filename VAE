@@ -1,0 +1,155 @@
+import tensorflow as tf
+import numpy as np
+
+def normalization(input):
+    with tf.variable_scope('preprocess') as scope:
+        mean = tf.constant([60, 60, 60], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
+        norm = tf.constant([255, 255, 255], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
+        output = (input - mean) / norm
+        return output
+
+def leaky_relu(x, leaky=0.2, name='leaky_relu'):
+    return tf.maximum(x, x * leaky)
+
+class discriminator:
+    # with tf.variable_scope('D') as scope:
+    def __init__(self):
+        # self.input = input
+        self.parameters = {}
+        self.reuse = False
+
+    def __call__(self, input):
+        with tf.variable_scope('D', reuse=self.reuse):
+            if(self.reuse):
+                tf.get_variable_scope().reuse_variables()
+            # self.norminput = normalization(input)
+            # conv1
+            # with tf.variable_scope('conv1'):
+            self.conv1_1 = self.convlayer('conv1_1', [3, 3, 3, 64], [64], input)    # self.input makes errors
+            self.conv1_2 = self.convlayer('conv1_2', [3, 3, 64, 64], [64], self.conv1_1)  # 256*256
+            self.pool1 = tf.nn.max_pool(value=self.conv1_2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool1')  # 112 112 64
+            # conv2
+            # with tf.variable_scope('conv2'):
+            self.conv2_1 = self.convlayer('conv2_1', [3, 3, 64, 128], [128], self.pool1)
+            self.conv2_2 = self.convlayer('conv2_2', [3, 3, 128, 128], [128], self.conv2_1)  # 128*128
+            self.pool2 = tf.nn.max_pool(value=self.conv2_2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool2')  # 56 56 128
+            # conv3
+            # with tf.variable_scope('conv3'):
+            self.conv3_1 = self.convlayer('conv3_1', [3, 3, 128, 256], [256], self.pool2)
+            self.conv3_2 = self.convlayer('conv3_2', [3, 3, 256, 256], [256], self.conv3_1)
+            self.conv3_3 = self.convlayer('conv3_3', [3, 3, 256, 256], [256], self.conv3_2)  # 56*56
+            self.pool3 = tf.nn.max_pool(value=self.conv3_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool3')  # 28 28 256
+            # conv4
+            # with tf.variable_scope('conv4'):
+            self.conv4_1 = self.convlayer('conv4_1', [3, 3, 256, 512], [512], self.pool3)
+            self.conv4_2 = self.convlayer('conv4_2', [3, 3, 512, 512], [512], self.conv4_1)
+            self.conv4_3 = self.convlayer('conv4_3', [3, 3, 512, 512], [512], self.conv4_2)  # 28*28
+            self.pool4 = tf.nn.max_pool(value=self.conv4_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool4')  # 14 14 512
+            # conv5
+            # with tf.variable_scope('conv5'):
+            self.conv5_1 = self.convlayer('conv5_1', [3, 3, 512, 512], [512], self.pool4)
+            self.conv5_2 = self.convlayer('conv5_2', [3, 3, 512, 512], [512], self.conv5_1)
+            self.conv5_3 = self.convlayer('conv5_3', [3, 3, 512, 512], [512], self.conv5_2)  # 14*14
+            self.pool5 = tf.nn.max_pool(value=self.conv5_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool5')  # 7 7 512
+            # fc
+            # with tf.variable_scope('fc'):
+            # shape = int(np.prod(self.pool5.get_shape()[1:]))
+            tmp = tf.reshape(self.pool5, [-1, 7*7*512])
+            self.fc1 = self.fclayer(name='fc1', kernel=[7*7*512, 4096], bias=[4096], input=tmp)
+            self.fc2 = self.fclayer(name='fc2', kernel=[4096, 4096], bias=[4096], input=self.fc1)
+            self.fc3 = self.fclayer(name='fc3', kernel=[4096, 1], bias=[1], input=self.fc2)
+            self.output = self.fc3
+
+            self.reuse = True
+            self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='D')
+            return self.output
+
+    def convlayer(self, name, kernel, bias, input):
+        with tf.variable_scope(name) as scope:
+            kernel = tf.get_variable(name='weights', shape=kernel, dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=1e-2))
+            biases = tf.get_variable(name='biases', shape=bias, dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+            conv = tf.nn.conv2d(input, kernel, [1, 1, 1, 1], padding='SAME')
+            out = tf.nn.bias_add(conv, biases)
+            # self.parameters = [kernel, biases]
+            self.parameters[name+'_W'] = kernel
+            self.parameters[name+'_b'] = biases
+            # output = tf.nn.relu(out)
+            output = tf.contrib.layers.batch_norm(tf.nn.relu(out), epsilon=1e-5)
+
+            # for tensorboard
+            tf.summary.histogram(name+'_W', kernel)
+            tf.summary.histogram(name+'_b', biases)
+            tf.summary.histogram(name+'_relu', output)
+            return output
+
+    def fclayer(self, name, kernel, bias, input):
+        with tf.variable_scope(name) as scope:
+            fc_w = tf.get_variable(name='weights', shape=kernel, dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=1e-2))
+            fc_b = tf.get_variable(name='biases', shape=bias, dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+
+            # self.parameters += [fc_w, fc_b]
+            # self.parameters += {name+'_W': fc_w, name+'_b': fc_b}
+            out = tf.nn.bias_add(tf.matmul(input, fc_w), fc_b)
+            output = tf.contrib.layers.batch_norm(tf.nn.relu(out), epsilon=1e-5)
+
+            # for tensorboard
+            tf.summary.histogram(name+'_W', fc_w)
+            tf.summary.histogram(name+'_b', fc_b)
+            tf.summary.histogram(name + '_relu', output)
+
+            return output
+
+class generator:
+    def __init__(self):
+        # self.input = input
+        self.parameters = {}
+        # self.build(input)
+    def __call__(self, input):
+        with tf.variable_scope('G'):
+            # deconv1
+            self.unpool1 = tf.image.resize_bilinear(input, [14, 14])
+
+            self.deconv1_1 = self.deconvlayer('conv5_3', [3, 3, 512, 512], [512], self.unpool1, [tf.shape(input)[0], 14, 14, 512])
+            self.deconv1_2 = self.deconvlayer('conv5_2', [3, 3, 512, 512], [512], self.deconv1_1, [tf.shape(input)[0], 14, 14, 512])
+            self.deconv1_3 = self.deconvlayer('conv5_1', [3, 3, 512, 512], [512], self.deconv1_2, [tf.shape(input)[0], 14, 14, 512])
+            # deconv2
+            self.unpool2 = tf.image.resize_bilinear(self.deconv1_3, [28, 28])
+            self.deconv2_1 = self.deconvlayer('conv4_3', [3, 3, 512, 512], [512], self.unpool2, [tf.shape(input)[0], 28, 28, 512])
+            self.deconv2_2 = self.deconvlayer('conv4_2', [3, 3, 512, 512], [512], self.deconv2_1, [tf.shape(input)[0], 28, 28, 512])
+            self.deconv2_3 = self.deconvlayer('conv4_1', [3, 3, 256, 512], [256], self.deconv2_2, [tf.shape(input)[0], 28, 28, 256])
+            # deconv3
+            self.unpool3 = tf.image.resize_bilinear(self.deconv2_3, [56, 56])
+            self.deconv3_1 = self.deconvlayer('conv3_3', [3, 3, 256, 256], [256], self.unpool3, [tf.shape(input)[0], 56, 56, 256])
+            self.deconv3_2 = self.deconvlayer('conv3_2', [3, 3, 256, 256], [256], self.deconv3_1, [tf.shape(input)[0], 56, 56, 256])
+            self.deconv3_3 = self.deconvlayer('conv3_1', [3, 3, 128, 256], [128], self.deconv3_2, [tf.shape(input)[0], 56, 56, 128])
+            # deconv4
+            self.unpool4 = tf.image.resize_bilinear(self.deconv3_3, [112, 112])
+            self.deconv4_1 = self.deconvlayer('conv2_2', [3, 3, 128, 128], [128], self.unpool4, [tf.shape(input)[0], 112, 112, 128])
+            self.deconv4_2 = self.deconvlayer('conv2_1', [3, 3, 64, 128], [64], self.deconv4_1, [tf.shape(input)[0], 112, 112, 64])
+            # deconv5
+            self.unpool5 = tf.image.resize_bilinear(self.deconv4_2, [224, 224])
+            self.deconv5_1 = self.deconvlayer('conv1_2', [3, 3, 64, 64], [64], self.unpool5, [tf.shape(input)[0], 224, 224, 64])
+            self.deconv5_2 = self.deconvlayer('conv1_1', [3, 3, 3, 64], [3], self.deconv5_1, [tf.shape(input)[0], 224, 224, 3])
+            self.tanh = tf.tanh(self.deconv5_2, name= 'tanh')
+            self.output = self.tanh
+
+            self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='G')
+            return self.output
+
+    def deconvlayer(self, name, kernel, bias, input, outputshape):
+        with tf.variable_scope(name) as scope:
+            kernel = tf.get_variable(name='weights', shape=kernel, dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=1e-2))
+            biases = tf.get_variable(name='biases', shape=bias, dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=1e-2))
+            conv = tf.nn.conv2d_transpose(input, kernel, outputshape, [1, 1, 1, 1], padding='SAME')
+            out = tf.nn.bias_add(conv, biases)
+            self.parameters[name+'_W'] = kernel
+            # self.parameters[name+'_b'] = biases
+            output = tf.contrib.layers.batch_norm(tf.nn.relu(out), epsilon=1e-5)
+            # output = leaky_relu(out)
+
+            # # for tensorboard
+            tf.summary.histogram(name + '_W', kernel)
+            tf.summary.histogram(name + '_b', biases)
+            tf.summary.histogram(name + '_relu', output)
+            return output
+
