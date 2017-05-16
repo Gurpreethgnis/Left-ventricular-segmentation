@@ -1,7 +1,8 @@
 import tensorflow as tf
 import numpy as np
 import os
-
+####################################################################
+# Load weights
 class load_class:
     # weight file is a dictionary tpye
     # dictionary is composed of keys and values
@@ -17,8 +18,8 @@ class load_class:
         self.load_weights(parameters, weight_file, sess)
 
     def load_weights(self, parameters, weight_file, sess):
-        weights = np.load(weight_file)
-        print(sorted(parameters.keys()))
+        weights = np.load(weight_file)      # trained weights
+        print(sorted(parameters.keys()))    # parameters
         print(weights.keys())
 
         # parameters = { 'conv1_1_W':[...], 'conv1_1_b':[...], ...}
@@ -26,7 +27,7 @@ class load_class:
         for i, k in enumerate(sorted(parameters)):
             print(i, k, np.shape(weights[k]))
             # print(weights[k])
-            sess.run(tf.assign(ref=parameters[k], value=weights[k]))
+            sess.run(tf.assign(ref=parameters[k], value=weights[k]))    # parameters<<trained weights
 
 
 class load_class_old:
@@ -43,7 +44,7 @@ class load_class_old:
             # sess.run(parameters[i].assign(weights[k]))
             sess.run(tf.assign(ref=parameters[i], value=weights[k]))
             # parameters[i].assign(weights[k])
-
+####################################################################
 
 # def data_shuffling(images, labels, trainset_num):
 #     # converting file format from list to numpy.ndarray
@@ -83,18 +84,22 @@ class load_class_old:
 #
 #     return trainX, trainY, testX, testY, train_size, test_size
 
+# data set divistion in case of localization
+
+####################################################################
+# Divide data set
+# localization (w label)
 def data_set(images, labels, trainval_ratio, test_ratio):
 
     total_ratio = trainval_ratio + test_ratio
-
     images = np.asarray(images) # images to array
-
-    # shuffle the images
-    image_indices = np.arange(len(images))
+    image_indices = np.arange(len(images)) # shuffle the images
     np.random.shuffle(image_indices)
     images = images[image_indices]  # no need additional space to restore images temporaly
+
     labels = np.asarray(labels)
     labels = labels[image_indices]
+
     set_len = int(np.floor(len(images) / total_ratio))
 
     image_set = []
@@ -110,6 +115,7 @@ def data_set(images, labels, trainval_ratio, test_ratio):
 
     return train_image_set, test_image_set, train_label_set, test_label_set
 
+# dcgan (w/o label)
 def data_set2(images, trainval_ratio, test_ratio):
     # data_set2 is a function for unsupervised learning
 
@@ -129,8 +135,10 @@ def data_set2(images, trainval_ratio, test_ratio):
     test_image_set = image_set[trainval_ratio:]
 
     return train_image_set, test_image_set
+####################################################################
 
-
+####################################################################
+# Arrage data set for cross validation
 def set_rearange(image_set, label_set, train_ratio, validation_ratio, k):
 
     # trainval_num = train_ratio + validation_ratio
@@ -151,6 +159,8 @@ def set_rearange(image_set, label_set, train_ratio, validation_ratio, k):
     testY = np.concatenate(testY, axis=0)
 
     return trainX, trainY, testX, testY
+####################################################################
+
 
 # def test_accuracy(testX, testY, test_indices, batch_size):
 #     # calculating precision and recall
@@ -174,13 +184,17 @@ def set_rearange(image_set, label_set, train_ratio, validation_ratio, k):
 #     print('precision: ', np.mean(precision))
 #     print('recall: ', np.mean(recall))
 
+####################################################################
+# Save weights
 def save_weight(sess, save_path):
 
-    dir = os.path.split(save_path)[0]
-    if not os.path.exists(dir):
-        os.mkdir(dir)
+    # dir = os.path.split(save_path)[0]
+    # if not os.path.exists(dir):
+    #     os.mkdir(dir)
 
     saver = tf.train.Saver()
     saver.save(sess, save_path)
 
     print("Model is saved in file: %s" % save_path)
+####################################################################
+
