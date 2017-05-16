@@ -1,0 +1,206 @@
+import tensorflow as tf
+import glob
+import os
+import time
+import numpy as np
+from LV_segmentation import util
+from LV_segmentation import preprocessing
+from LV_segmentation.segmentation import inference
+import cv2
+import matplotlib
+from matplotlib import pyplot as plt
+from keras import backend as K
+
+####################################################################
+# dice loss layer
+smooth = 1.
+def dice_coef(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+
+def dice_coef_loss(y_true, y_pred):
+    return -dice_coef(y_true, y_pred)
+
+def accuracy1(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    # precision = intersection/K.sum(y_true_f)
+    # recall = intersection/K.sum(y_pred_f)
+    return ((intersection + smooth) / (K.sum(y_true_f) + smooth))
+
+def accuracy2(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    return ((intersection + smooth) / (K.sum(y_pred_f) + smooth))
+####################################################################
+
+####################################################################
+# Hyper-parameters
+learning_rate = 0.0001
+training_epochs = 3000
+batch_size = 15  # mini batch size
+
+# Data parameters
+crossval = 'OFF'
+train_ratio = 5
+validation_ratio = 1
+test_ratio = 1
+trainval_ratio = train_ratio + validation_ratio
+####################################################################
+
+####################################################################
+# Model setup
+X = tf.placeholder(tf.float32, [None, 224, 224, 3]) # input
+Y = tf.placeholder(tf.float32, [None, 224, 224, 3]) # output
+
+seg = inference()
+pred = seg(X)
+
+# Objective - loss function
+loss = tf.reduce_mean(dice_coef_loss(Y, pred))
+precision = tf.reduce_mean(accuracy1(Y, pred))
+recall = tf.reduce_mean(accuracy2(Y, pred))
+
+# loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=Y, logits=pred))
+optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+
+# vars_en=[var for var in vae.variables if 'encoder' in var.name]
+# vars_de=[var for var in vae.variables if 'decoder' in var.name]
+# print('vars:' , len(vars_en), len(vars_de))
+# tf.add_to_collection(name='g_loss', value=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dg), logits=tf.nn.sigmoid(dg))))
+# tf.add_to_collection(name='d_loss', value=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dx), logits=tf.nn.sigmoid(dx))))
+# tf.add_to_collection(name='d_loss', value=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(dg), logits=tf.nn.sigmoid(dg))))
+# d_loss = tf.add_n(tf.get_collection('d_loss'), name='total_d_loss')
+# g_loss = tf.add_n(tf.get_collection('g_loss'), name='total_g_loss')
+# tvars = tf.trainable_variables()
+# with tf.variable_scope(tf.get_variable_scope(), reuse=False) as scope:
+#     d_opt = tf.train.AdamOptimizer(learning_rate).minimize(d_loss, var_list=d_vars)
+####################################################################
+
+# start_time = time.time()
+# Launch the graph in a session
+with tf.Session() as sess:
+
+    ####################################################################
+    # Preprocessing
+    ORG_DIR = 'data/augumentation_segmentation'
+    TRAIN_DIR = 'data/train_segmentation'
+    SAVE_DIR = 'history/0514.seg1/3'
+    # if not os.path.exists(SAVE_DIR):
+    #     os.mkdir(os.path.abspath(SAVE_DIR))
+
+    # Image resizing and normalizing
+    # preprocessing.save_image(ORG_DIR, TRAIN_DIR)
+
+    # Image labeling
+    images, grounds = preprocessing.labeling_image2(TRAIN_DIR)
+
+    # devide the data into train + validation set and test set
+    train_image_set, test_image_set, train_ground_set, test_ground_set \
+        = util.data_set(images, grounds, trainval_ratio, test_ratio)
+    ####################################################################
+
+    ####################################################################
+    # For tensorboard
+    # announce element
+    tf.summary.scalar('loss', loss)  # it will be stored in a buffer
+    tf.summary.scalar('precision', precision)
+    tf.summary.scalar('recall', recall)
+
+    merged = tf.summary.merge_all()
+    writer = tf.summary.FileWriter(SAVE_DIR, sess.graph)
+    # writer.add_graph(sess.graph)
+    ####################################################################
+
+    for k in range(trainval_ratio):
+        ####################################################################
+        # Initialization
+        tf.global_variables_initializer().run()  # global initialize
+        util.load_class(seg.parameters_e, 'vgg16_weights.npz', sess)
+        util.load_class(seg.parameters_d, 'vgg16_weights.npz', sess)
+        # util.load_class(G.parameters, 'vgg16_weights.npz', sess)
+        ####################################################################
+
+        trainX, trainY, testX, testY \
+            = util.set_rearange(train_image_set, train_ground_set, train_ratio, validation_ratio, k)
+
+        for i in range(training_epochs):
+
+            ####################################################################
+            # Training
+            print('epoch: ', k, '-', i)
+            training_batch = zip(range(0, len(trainX), batch_size),
+                                 range(batch_size, len(trainX) + 1, batch_size))  # list > dictionary ?
+            # zip(range(start, end, interval))
+            # 0     72
+            # 72    144
+            # ...
+            for start, end in training_batch:
+
+                # print('loss: ', sess.run(loss,  feed_dict={X:trainX[start:end], Y:trainY[start:end]}))
+                sess.run(optimizer, feed_dict={X: trainX[start:end], Y: trainY[start:end]})
+            ####################################################################
+
+            ####################################################################
+            # # Test
+            # test_pred = sess.run(pred, feed_dict={X: testX[0:len(testX)]})
+            # test_gnd = testY[0:len(testY)]
+            # test_pred_f = K.flatten(test_pred)
+            # test_true_f = K.flatten(test_gnd)
+            # test_intersection = K.sum(test_pred_f*test_true_f)
+            # precision = test_intersection/K.sum(test_true_f)
+            # recall = test_intersection/K.sum(test_pred_f)
+            # print('precision: ', precision)
+            # print('recall: ', recall)
+            # print('precision: ' ,sess.run(precision, feed_dict={X: testX[:len(testX)], Y: testY[:len(testY)]}))
+            # print('recall: ' ,sess.run(recall, feed_dict={X: testX[:len(testX)], Y: testY[:len(testY)]}))
+            ####################################################################
+
+            ####################################################################
+            # For tensorboard
+
+            summary = sess.run(merged, feed_dict={X: trainX[0:batch_size], Y:trainY[0:batch_size]})
+            writer.add_summary(summary, i)
+            ####################################################################
+
+            ####################################################################
+            # Images save
+            # Ground
+            if i is 0:
+                fn = os.path.join(SAVE_DIR, 'ground.jpg')
+                cv2.imwrite(filename=fn, img=testY[0])
+            # Training
+            image = sess.run(pred, feed_dict={X: testX[0:1]})
+            # image_gray = cv2.cvtColor(image[0]*255, cv2.COLOR_BGR2GRAY)
+            save_filelist = [str(i) + '.jpg' for i in range(training_epochs)]
+            fn= os.path.join(SAVE_DIR, save_filelist[i])
+            cv2.imwrite(filename=fn, img=image[0])
+
+            # plt.switch_backend('Qt5agg')
+            # You may wish to save or plot the image generated
+            # to see how it looks like
+            # print(image.shape)
+            # for k in range(batch_size):
+            #     plt.subplot(2,5,k+1)
+            #     plt.imshow(image[k,:,:,:])
+            #     plt.show()
+            ####################################################################
+
+            ####################################################################
+            # Save the weight
+            if i%100 is 0:
+                path = [SAVE_DIR + '/weight' + str(i) + '.npy']
+                # util.save_weight(sess, path)
+                saver = tf.train.Saver()
+                saver.save(sess, path[0])   # list to string
+                print("Model is saved in file: %s" % path)
+            ####################################################################
+
+        if crossval is not 'ON': break
+    # print('training finished')
+
+
