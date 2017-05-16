@@ -1,24 +1,47 @@
 import glob
 import os
 import re
-import PIL
+# import PIL
 import numpy as np
 import tensorflow as tf
 import cv2
+import dicom
 from PIL import Image
 from LV_segmentation.data.annotation_expand import readXML
+from matplotlib import pyplot as plt
 
+####################################################################
+# INDEX
 
-# --------------------------------------------------------------------------------------------------------------
+#   Normalize/Equlaize and resize images
+#   Save processed imags
 
-# Image normalizatiovn and resize
+#   Normalize and resize bouding box (for localization)
+#   Decoding
+#   Labeling
+
+####################################################################
+
 
 def natural_key(string_):
 
     # 1, 12, 123
     return int(re.search(r'\d+', string_).group())
 
+
+
+####################################################################
+# Normalize/Equlaize and resize images
 def norm_image(img):
+
+    # img = cv2.imread(img)
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # a = np.asarray(img_gray)
+    dst = np.zeros(shape=(5,2))
+    img_normal = cv2.normalize(img_gray, dst, 0, 255, cv2.NORM_L1)
+    img = cv2.cvtColor(img_normal, cv2.COLOR_GRAY2RGB)
+    # print(type(img))  # numpy.ndarray
+    # img = Image.fromarray(img_rgb)
 
     # img = np.asarray(img).astype(dtype=int)
     # img_r_np /= 255                 # [0,255] > [0,1]
@@ -68,8 +91,9 @@ def norm_image(img):
 
     return img
 
-def equal_image(path):
-    img = cv2.imread(path)
+# Equalize images
+def equal_image(img):
+    # img = cv2.imread(path)
     img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     img_equal = cv2.equalizeHist(img_gray)
     # img_norm = img_equal/255
@@ -78,26 +102,30 @@ def equal_image(path):
 
     return img
 
-
+# Resize images
 def resize_image(img, size):
+    img = cv2.resize(img, (size, size))
 
-    n_x, n_y = img.size
-    if n_y > n_x:
-        n_y_new = size
-        n_x_new = int(size*n_x/n_y + 0.5)
-    else:
-        n_x_new = size
-        n_y_new = int(size*n_y/n_x + 0.5)
+    # n_x, n_y = img.size
+    # if n_y > n_x:
+    #     n_y_new = size
+    #     n_x_new = int(size*n_x/n_y + 0.5)
+    # else:
+    #     n_x_new = size
+    #     n_y_new = int(size*n_y/n_x + 0.5)
+    #
+    # img_res = img.resize((n_x_new, n_y_new), resample=PIL.Image.BICUBIC)
+    #
+    # img_pad = Image.new('RGB', (size, size), (0, 0, 0))
+    # top_left = ((size-n_x_new)//2, (size-n_y_new)//2)
+    # img_pad.paste(img_res, top_left)
 
-    img_res = img.resize((n_x_new, n_y_new), resample=PIL.Image.BICUBIC)
+    return img
+####################################################################
 
-    img_pad = Image.new('RGB', (size, size), (0, 0, 0))
-    top_left = ((size-n_x_new)//2, (size-n_y_new)//2)
-    img_pad.paste(img_res, top_left)
-
-    return img_pad
-
-def save_image():
+####################################################################
+# Save preprocessed images
+def save_image_old():
 
     # print('save_image')
 
@@ -126,8 +154,8 @@ def save_image():
 
     SIZE = 224
 
-    if not os.path.exists(ORG_DIR):
-        os.mkdir(TRAIN_DIR)
+    # if not os.path.exists(ORG_DIR):
+    #     os.mkdir(TRAIN_DIR)
 
     for path in org_img[:]:
         # img = Image.open(path)
@@ -142,6 +170,57 @@ def save_image():
 
     print('images_saved')
 
+# Save preprocessed images
+def save_image(ORG_DIR, TRAIN_DIR):
+    if not os.path.exists(TRAIN_DIR):
+        os.mkdir(TRAIN_DIR)
+
+    img = sorted(glob.glob(os.path.join(ORG_DIR, 'img.*')))
+    gnd = sorted(glob.glob(os.path.join(ORG_DIR, 'gnd.*')))
+    SIZE = 224
+
+    for path in img[:]:
+        img = cv2.imread(path)
+        # img_nrm = norm_image(img)
+        img_res = resize_image(img, SIZE)
+        new_path = os.path.join(TRAIN_DIR, os.path.split(path)[1])
+        # print(new_path)
+        cv2.imwrite(new_path, img_res)
+        # img_res.save(new_path)
+
+    for path in gnd[:]:
+        # gnd = dicom.read_file(path)
+        gnd = cv2.imread(path)
+        gnd_res = resize_image(gnd, SIZE)
+        new_path = os.path.join(TRAIN_DIR, os.path.split(path)[1])
+        # gnd_res.save(new_path)
+        cv2.imwrite(new_path, gnd_res)
+    print('images_saved')
+####################################################################
+# # # # Preprocessing
+# # plt.switch_backend('Qt5agg')
+# #
+# ORG_DIR = 'data/augumentation_segmentation'
+# TRAIN_DIR = 'data/train_segmentation'
+# # img = sorted(glob.glob(os.path.join(ORG_DIR, 'img.*')))
+# # # print(img)
+# # img = cv2.imread(img[0])
+# # # img_nrm = norm_image(img)
+# # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+# # dst = np.zeros(shape=(img_gray.shape[0], img_gray.shape[1]))
+# # img_normal = cv2.normalize(img_gray, dst, 2000, 255, cv2.NORM_L2)
+# # img = cv2.cvtColor(img_normal, cv2.COLOR_GRAY2RGB)
+# # # cv2.imshow('frame', img)
+# # plt.imshow(img)
+# # plt.show()
+#
+#
+# # Image resizing and normalizing
+# save_image(ORG_DIR, TRAIN_DIR)
+
+
+####################################################################
+# Normalize and resize bounding box
 def norm_boundingbox(bndbox):
 
     SIZE = 224
@@ -166,12 +245,10 @@ def resize_boundingbox(bndbox):
     bndbox_resize = [xmin_re, ymin_re, xmax_re, ymax_re]
 
     return bndbox_resize
+####################################################################
 
-
-# --------------------------------------------------------------------------------------------------------------
-
+####################################################################
 # Converting image files to numpy.ndarray
-
 def decode_image(image_filenames, resize_func=None):
 
     name = tf.placeholder(dtype=tf.string)
@@ -191,12 +268,14 @@ def decode_image(image_filenames, resize_func=None):
             if i%1000 == 0:
                 print(i, 'processed.')
         return images
+####################################################################
 
+# test = decode_image(['data/augumentation_segmentation/gnd.0.0.jpg'])
+test = decode_image(['history/temp/0.jpg'])
+print(np.max(test))
 
-# --------------------------------------------------------------------------------------------------------------
-
-# Labeling images
-
+####################################################################
+# Labeling images (for localization)
 def labeling_image():
 
     # ORG_DIR = 'data/augumentation/images'  # org data
@@ -243,3 +322,16 @@ def labeling_image():
     print('images_labelled')
 
     return train_images, labels
+
+# Labeling_images (for segmentation)
+def labeling_image2(DIR):
+
+    image_files = sorted(glob.glob((os.path.join(DIR, 'img.*'))))
+    ground_files = sorted(glob.glob((os.path.join(DIR, 'gnd.*'))))
+
+    images = decode_image(image_files)
+    grounds = decode_image(ground_files)
+
+    return images, grounds
+####################################################################
+
