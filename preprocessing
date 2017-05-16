@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 import cv2
 import dicom
-from PIL import Image
+# from PIL import Image
 from LV_segmentation.data.annotation_expand import readXML
 from matplotlib import pyplot as plt
 
